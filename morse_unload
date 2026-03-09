@@ -1,0 +1,14 @@
+#!/bin/sh
+module_name="morse_dev"
+device="morse"
+
+# invoke rmmod with all arguments we got
+rmmod ${module_name}
+
+# Remove stale nodes
+rm /dev/${device}
+
+
+
+
+

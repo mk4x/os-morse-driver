@@ -1,0 +1,25 @@
+#!/bin/sh
+module_name="morse_dev"
+device="morse"
+mode="666"
+group="root"
+
+# invoke insmod
+# use a pathname, as newer modutils don't look in . by default
+insmod ./${module_name}.ko
+
+# Remove stale nodes and replace them, then give gid and perms
+# Usually the script is shorter, it's scull that has several devices in it.
+
+# Remove stale nodes
+#rm /dev/${device}
+
+mknod /dev/${device} c 255 0
+
+chgrp $group /dev/${device}
+chmod $mode  /dev/${device}
+
+
+
+
+
