@@ -24,6 +24,7 @@
 #include <asm/switch_to.h>
 #include <linux/cdev.h>
 #include "morse_table.h"
+#include "gpio_handler.h"
 
 /* Prototypes - this would normally go in a .h file */
 int morse_init_module( void );
@@ -42,8 +43,6 @@ long morse_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 /* end of what really should have been in a .h file */
 
 
-/* GPIO manipulation */
-
 /* file operations struct */
 static struct file_operations morse_fops = {
 	.owner   = THIS_MODULE,
@@ -53,23 +52,63 @@ static struct file_operations morse_fops = {
     .unlocked_ioctl = morse_ioctl
 };
 
+/* cdev and devno */
+static struct cdev  morse_cdev;
+static dev_t        morse_devno;
+
+
+
 /* called when module is loaded */
 int morse_init_module( void ) {
+    int err;
 
-	/* initialization code belongs here */
+    /* Claim device number for driver*/
+    morse_devno = MKDEV(MAJOR_NUMBER, MIN_MINOR_NUMBER);
+    err = register_chrdev_region(morse_devno, DEVICE_COUNT, DEVICE_NAME);
+    if (err < 0) {
+        printk(KERN_WARNING "Morse: cannot register device number: %d\n", err);
+        return err;
+    }
+
+    /* Connects file_operations to device number */
+    cdev_init(&morse_cdev, &morse_fops);
+    morse_cdev.owner = THIS_MODULE;
+    err = cdev_add(&morse_cdev, morse_devno, DEVICE_COUNT);
+    if (err) {
+        printk(KERN_WARNING "Morse: cdev_add failed: %d\n", err);
+        unregister_chrdev_region(morse_devno, DEVICE_COUNT);
+        return err;
+    }
+
+    /* Map GPIO registers into virtual space */
+    gpio_hw_init(); /* Will fill gpio_base* pointer */
+    if (!gpio_base) {
+        printk(KERN_WARNING "Morse: ioremap failed\n");
+        cdev_del(&morse_cdev);
+        unregister_chrdev_region(morse_devno, DEVICE_COUNT);
+        return -ENOMEM;
+    }
+
+    /* Setup LED */
+    gpio_set_mode(GPIO_LED_PIN, 1); // 1 = output
+    led_off();
 
 
-
-	printk(KERN_INFO "Morse: Hello from your device!\n");
+	printk(KERN_INFO "Morse: Morse loaded, device (%d, %d)!\n", MAJOR_NUMBER, MIN_MINOR_NUMBER);
 
 	return 0;
 }
 
 /* Called when module is unloaded */
 void morse_cleanup_module( void ) {
-
-	/* clean up code belongs here */
-
+	led_off();
+ 
+    /* Unmap GPIO memory, handles !gpio_base itself*/
+    gpio_hw_exit(void); 
+ 
+    cdev_del(&morse_cdev);
+    unregister_chrdev_region(morse_devno, DEVICE_COUNT);
+ 
 	printk(KERN_INFO "Morse: Module unloaded.\n");
 }
 
@@ -78,7 +117,11 @@ void morse_cleanup_module( void ) {
 static int morse_open( struct inode *inode, struct file *filp ) {
 	
 	/* device claiming code belongs here */
-
+    printk(KERN_INFO "Morse: device opened.\n");
+    /* 
+    TODO: Later, implement synchronzation here so two devices 
+    cannot write to the same device.
+    */
 	return 0;
 }
 
@@ -87,7 +130,10 @@ static int morse_open( struct inode *inode, struct file *filp ) {
 static int morse_release( struct inode *inode, struct file *filp ) {
 
 	/* device release code belongs here */
-		
+	printk(KERN_INFO "Morse: device closed.\n");
+    /* 
+    TODO: Later, implement synchronzation... Free the thread here.
+    */
 	return 0;
 }
 

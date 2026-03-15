@@ -5,6 +5,7 @@
 
 void __iomem *gpio_base;
 
+
 /* Helper function to keep one global gpio_base address */
 int gpio_hw_init(void)
 {
@@ -54,6 +55,9 @@ void led_off(void)
 {
 	iowrite32(1u << GPIO_LED_PIN, gpio_base + GPCLR0);
 }
+
+/* Export symbols to other modules */
+EXPORT_SYMBOL(gpio_base);
 EXPORT_SYMBOL(gpio_set_mode);
 EXPORT_SYMBOL(gpio_hw_init);
 EXPORT_SYMBOL(gpio_hw_exit);
