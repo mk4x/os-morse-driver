@@ -23,6 +23,7 @@
 /* #include <asm/system.h> */
 #include <asm/switch_to.h>
 #include <linux/cdev.h>
+#include "morse_table.h"
 
 /* Prototypes - this would normally go in a .h file */
 int morse_init_module( void );
@@ -40,6 +41,9 @@ long morse_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 #define DEVICE_COUNT 1
 /* end of what really should have been in a .h file */
 
+
+/* GPIO manipulation */
+
 /* file operations struct */
 static struct file_operations morse_fops = {
 	.owner   = THIS_MODULE,
@@ -53,6 +57,8 @@ static struct file_operations morse_fops = {
 int morse_init_module( void ) {
 
 	/* initialization code belongs here */
+
+
 
 	printk(KERN_INFO "Morse: Hello from your device!\n");
 
@@ -74,7 +80,6 @@ static int morse_open( struct inode *inode, struct file *filp ) {
 	/* device claiming code belongs here */
 
 	return 0;
-;
 }
 
 
@@ -114,5 +119,5 @@ long morse_ioctl(
 module_init( morse_init_module );
 module_exit( morse_cleanup_module );
 
-MODULE_AUTHOR( "...Your names here. Do not delete the three dots in the beginning." );
+MODULE_AUTHOR( "...Mar-Joh, Jen-Wil" );
 MODULE_LICENSE( "GPL" );
