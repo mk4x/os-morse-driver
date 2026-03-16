@@ -104,7 +104,7 @@ void morse_cleanup_module( void ) {
 	led_off();
  
     /* Unmap GPIO memory, handles !gpio_base itself*/
-    gpio_hw_exit(void); 
+    gpio_hw_exit(); 
  
     cdev_del(&morse_cdev);
     unregister_chrdev_region(morse_devno, DEVICE_COUNT);
@@ -142,12 +142,32 @@ static int morse_release( struct inode *inode, struct file *filp ) {
 static ssize_t morse_write( struct file *filp,
     const char *buf,/* The buffer to get data from      */
     size_t count,   /* The max number of bytes to write */
-    loff_t *f_pos )  /* The offset in the file           */
+    loff_t *f_pos )  /* The offset in the file          */
 {
-
-	/* write code belongs here */	
-
-	return 0; //return number of bytes written
+    char *kbuf;
+    
+    /* Allocate kernel buffer (+1 for null terminator) */
+    kbuf = kmalloc(count + 1, GFP_KERNEL);
+    if (!kbuf) {
+        printk(KERN_ERR "Morse: Failed to allocate buffer\n");
+        return -ENOMEM;
+    }
+    
+    /* Copy data from userspace to kernel space */
+    if (copy_from_user(kbuf, buf, count)) {
+        printk(KERN_ERR "Morse: copy_from_user failed\n");
+        kfree(kbuf);
+        return -EFAULT;
+    }
+    
+    /* Transmit via Morse code */
+    transmit_morse(kbuf, count);
+    
+    /* Clean up */
+    kfree(kbuf);
+    
+    /* Return number of bytes written */
+    return count;
 }
 
 /* called by system call icotl */ 

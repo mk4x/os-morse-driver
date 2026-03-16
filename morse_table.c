@@ -111,5 +111,9 @@ const char *morse_lookup(char c)
     return NULL; /* unsupported — caller handles space and gaps */
 }
 
+/* Export symbols for other modules */
+EXPORT_SYMBOL(transmit_morse);
+EXPORT_SYMBOL(morse_lookup);
+
 MODULE_AUTHOR( "...Mar-Joh, Jen-Wil" );
 MODULE_LICENSE( "GPL" );
