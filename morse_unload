@@ -4,6 +4,8 @@ device="morse"
 
 # invoke rmmod with all arguments we got
 rmmod ${module_name}
+rmmod morse_table 2>/dev/null || true
+rmmod gpio_handler 2>/dev/null || true
 
 # Remove stale nodes
 rm /dev/${device}

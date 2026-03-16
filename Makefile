@@ -8,7 +8,7 @@ KERNELDIR = ${ROOT}/linux
 PWD = $(shell pwd)
 
 
-obj-m += morse_dev.o gpio_handler.o morse_table.o
+obj-m += gpio_handler.o morse_table.o morse_dev.o
 
 modules:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) LDDINC=$(KERNELDIR)/include ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules

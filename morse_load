@@ -4,15 +4,22 @@ device="morse"
 mode="666"
 group="root"
 
+# Ensure clean reload state 
+rmmod ${module_name} 2>/dev/null || true
+rmmod morse_table 2>/dev/null || true
+rmmod gpio_handler 2>/dev/null || true
+
 # invoke insmod
 # use a pathname, as newer modutils don't look in . by default
+insmod ./gpio_handler.ko
+insmod ./morse_table.ko
 insmod ./${module_name}.ko
 
 # Remove stale nodes and replace them, then give gid and perms
 # Usually the script is shorter, it's scull that has several devices in it.
 
 # Remove stale nodes
-#rm /dev/${device}
+rm -f /dev/${device}
 
 mknod /dev/${device} c 255 0
 
