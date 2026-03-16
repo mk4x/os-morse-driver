@@ -1,0 +1,16 @@
+*
+
+!.gitignore
+!Makefile
+!makefile
+!deploy.sh
+!deploy.bat
+!morse_load
+!morse_unload
+!mourse_load
+!mourse_unload
+!morse_dev.c
+!gpio_handler.c
+!gpio_handler.h
+!morse_table.h
+!morse_table.c
