@@ -253,25 +253,22 @@ void morse_cleanup_module( void ) {
 /* Called when a process tries to open the device file */
 static int morse_open( struct inode *inode, struct file *filp ) {
 	
-	/* device claiming code belongs here */
+    /* if it is already claimed */
+	if (atomic_inc_return(&morse_open_count) > 1) {
+        atomic_dec(&morse_open_count);
+        return -EBUSY;
+    }
     printk(KERN_INFO "Morse: device opened.\n");
-    /* 
-    TODO: Later, implement synchronzation here so two devices 
-    cannot write to the same device.
-    */
-	return 0;
+    return 0;
 }
 
 
 /* Called when a process closes the device file. */
 static int morse_release( struct inode *inode, struct file *filp ) {
 
-	/* device release code belongs here */
-	printk(KERN_INFO "Morse: device closed.\n");
-    /* 
-    TODO: Later, implement synchronzation... Free the thread here.
-    */
-	return 0;
+	atomic_dec(&morse_open_count); // remove the block
+    printk(KERN_INFO "Morse: device closed.\n");
+    return 0;
 }
 
 
@@ -281,29 +278,34 @@ static ssize_t morse_write( struct file *filp,
     size_t count,   /* The max number of bytes to write */
     loff_t *f_pos )  /* The offset in the file          */
 {
-    char *kbuf;
-    
-    /* Allocate kernel buffer (+1 for null terminator) */
-    kbuf = kmalloc(count + 1, GFP_KERNEL);
-    if (!kbuf) {
-        printk(KERN_ERR "Morse: Failed to allocate buffer\n");
-        return -ENOMEM;
+       size_t i;
+    char c;
+
+    for (i = 0; i < count; i++) {
+
+        /* Read one character from userspace */
+        if (copy_from_user(&c, buf + i, 1))
+            return -EFAULT;
+
+        mutex_lock(&morse_buf.lock);
+
+        /* If buffer is full, either bail or sleep */
+        if (!cbuf_has_space(&morse_buf)) {
+            mutex_unlock(&morse_buf.lock);
+
+            if (filp->f_flags & O_NONBLOCK)
+                return -EAGAIN;
+
+            /* Block until kthread frees a slot */
+            wait_event_interruptible(morse_buf.writers, cbuf_has_space(&morse_buf));
+            mutex_lock(&morse_buf.lock);
+        }
+
+        cbuf_put(&morse_buf, c);
+        mutex_unlock(&morse_buf.lock);
+        wake_up_interruptible(&morse_buf.readers); // tell readers we wrote something
     }
-    
-    /* Copy data from userspace to kernel space */
-    if (copy_from_user(kbuf, buf, count)) {
-        printk(KERN_ERR "Morse: copy_from_user failed\n");
-        kfree(kbuf);
-        return -EFAULT;
-    }
-    
-    /* Transmit via Morse code */
-    transmit_morse(kbuf, count);
-    
-    /* Clean up */
-    kfree(kbuf);
-    
-    /* Return number of bytes written */
+
     return count;
 }
 
