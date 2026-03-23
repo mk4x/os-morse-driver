@@ -23,6 +23,8 @@
 /* #include <asm/system.h> */
 #include <asm/switch_to.h>
 #include <linux/cdev.h>
+#include <linux/mutex.h>
+
 #include "morse_table.h"
 #include "gpio_handler.h"
 
@@ -40,6 +42,7 @@ long morse_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 #define MAX_MINOR_NUMBER 1
 
 #define DEVICE_COUNT 1
+#define BUFFER_DEFAULT_SIZE 1024
 /* end of what really should have been in a .h file */
 
 
@@ -56,6 +59,47 @@ static struct file_operations morse_fops = {
 static struct cdev  morse_cdev;
 static dev_t        morse_devno;
 
+/* circular buffer */
+struct circ_buf {
+    char *data;
+    int size;
+    int read_pos; /* a kthread will read here */
+    int write_pos; /* write() will write here */
+    struct mutex lock; /* atomic lock */
+    wait_queue_read_pos_t readers; /* ktrread_pos sleep here when empty */
+    wait_queue_read_pos_t writers; /* write() sleeps here when full */
+};
+
+static inline int cbuf_has_data(struct circ_buf *b)
+{
+    /* if write_pos has caught up to read_pos, everything is read */
+    return b->read_pos != b->write_pos;
+}
+
+static inline int cbuf_has_space(struct circ_buf *b)
+{
+    /* the case where write pos + 1 would result in being
+       equal to the read_pos, meaning no more space left
+    */
+    return ((b->write_pos+1) % b->size) != b->read_pos;
+}
+
+static inline void cbuf_put(struct circ_buf *b, char c) 
+{
+    b->data[b->write_pos] = c;
+    b->write_pos = (b->write_pos + 1) % b->size;
+}
+
+static inline char cbuf_get(struct circ_buf *b) 
+{
+    char c = b->data[b->read_pos];
+    b->read_pos = (b->read_pos + 1) % b->size;
+    return c;
+}
+
+static struct circ_buf     morse_buf;
+static struct task_struct *morse_thread;
+static atomic_t            morse_open_count = ATOMIC_INIT(0);
 
 
 /* called when module is loaded */
