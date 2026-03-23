@@ -65,7 +65,7 @@ struct circ_buf {
     int size;
     int read_pos; /* a kthread will read here */
     int write_pos; /* write() will write here */
-    struct mutex lock; /* atomic lock */
+    struct mutex lock; /* atomic lock only for this buffer*/
     wait_queue_read_pos_t readers; /* ktrread_pos sleep here when empty */
     wait_queue_read_pos_t writers; /* write() sleeps here when full */
 };
@@ -100,6 +100,50 @@ static inline char cbuf_get(struct circ_buf *b)
 static struct circ_buf     morse_buf;
 static struct task_struct *morse_thread;
 static atomic_t            morse_open_count = ATOMIC_INIT(0);
+
+/* morse kthread livecycle, responsible for waking and reacting to when data is in circ_buf */
+static int morse_kthread(void *data)
+{
+    char c; 
+
+    printk(KERN_INFO "Morse: kthread started.\n");
+
+    /* built in command, if kthread is killed from outside*/
+    while (!kthread_should_stop()) 
+    {
+        /* let the thread sleep until buffer has data or if called to kill itself */
+        if (wait_event_interruptible(morse_buf.readers, cbuf_has_data(&morse_buf) || kthread_should_stop()))
+        {
+            break;
+        } 
+
+        /* kill itself */
+        if (kthread_should_stop())
+            break;
+
+        /* lock the data for this thread, and take 1 char out */
+        mutex_lock(&morse_buf.lock);
+        /* data could have not have reached morse_write before the thread woke up, check again to be sure */
+        if (!cbuf_has_data(&morse.buf))
+        {
+            /* no data to read, unlock again */
+            mutex_unlock(&morse_buf.lock);
+            continue;
+        }
+
+        /* read data */
+        c = cbuf_get(&morse_buf);
+        mutex_unlock(&morse_buf.lock);
+
+        /* tell writers, if they are blocked, that they can write again since a slot is freed up */
+        wake_up_interruptible(&morse_buf.writers);
+
+        /* transmit the data to the LED */
+        /* note  this should not be done inside the lock since its a slow operation with msleep, 
+        morse_write cant happen if we are waiting */
+        transmit_morse(&c, 1); // 1 char
+    }
+}
 
 
 /* called when module is loaded */
