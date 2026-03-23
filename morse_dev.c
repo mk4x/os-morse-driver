@@ -63,12 +63,34 @@ static dev_t        morse_devno;
 struct circ_buf {
     char *data;
     int size;
-    int read_pos; /* a kthread will read here */
-    int write_pos; /* write() will write here */
+    int read_pos; /* a kthread will read here, head */
+    int write_pos; /* write() will write here, tail */
     struct mutex lock; /* atomic lock only for this buffer*/
-    wait_queue_read_pos_t readers; /* ktrread_pos sleep here when empty */
-    wait_queue_read_pos_t writers; /* write() sleeps here when full */
+    wait_queue_head_t  readers; /* ktrread_pos sleep here when empty */
+    wait_queue_head_t  writers; /* write() sleeps here when full */
 };
+
+/* initialise the cbuffer ring */
+static int cbuf_init(struct circ_buf *b, int size)
+{
+    b->data = kmalloc(size, GFP_KERNEL);
+    if (!b->data)
+        return -ENOMEM;
+    b->size = size;
+    b->read_pos = 0;
+    b->write_pos = 0;
+    mutex_init(&b->lock);
+    init_waitqueue_head(&b->readers);
+    init_waitqueue_head(&b->writers);
+    return 0;
+}
+
+/* cleanup for cbuffer */
+static void cbuf_destroy(struct circ_buf *b)
+{
+    kfree(b->data);
+    b->data = NULL;
+}
 
 static inline int cbuf_has_data(struct circ_buf *b)
 {
@@ -124,7 +146,7 @@ static int morse_kthread(void *data)
         /* lock the data for this thread, and take 1 char out */
         mutex_lock(&morse_buf.lock);
         /* data could have not have reached morse_write before the thread woke up, check again to be sure */
-        if (!cbuf_has_data(&morse.buf))
+        if (!cbuf_has_data(&morse_buf))
         {
             /* no data to read, unlock again */
             mutex_unlock(&morse_buf.lock);
@@ -143,6 +165,7 @@ static int morse_kthread(void *data)
         morse_write cant happen if we are waiting */
         transmit_morse(&c, 1); // 1 char
     }
+    return 0;
 }
 
 
@@ -168,6 +191,15 @@ int morse_init_module( void ) {
         return err;
     }
 
+    /* Allocate the cbuf_ring */
+    err = cbuf_init(&morse_buf, BUFFER_DEFAULT_SIZE);
+    if (err) {
+        printk(KERN_WARNING "Morse: buffer allocation failed\n");
+        cdev_del(&morse_cdev);
+        unregister_chrdev_region(morse_devno, DEVICE_COUNT);
+        return err;
+    }
+
     /* Map GPIO registers into virtual space */
     gpio_hw_init(); /* Will fill gpio_base* pointer */
     if (!gpio_base) {
@@ -181,6 +213,16 @@ int morse_init_module( void ) {
     gpio_set_mode(GPIO_LED_PIN, 1); // 1 = output
     led_off();
 
+    /* Start the kthread */
+    morse_thread = kthread_run(morse_kthread, NULL, "morse_kthread");
+    if (IS_ERR(morse_thread)) {
+        printk(KERN_WARNING "Morse: kthread_run failed\n");
+        cbuf_destroy(&morse_buf);
+        cdev_del(&morse_cdev);
+        unregister_chrdev_region(morse_devno, DEVICE_COUNT);
+        return PTR_ERR(morse_thread);
+    }
+
 
 	printk(KERN_INFO "Morse: Morse loaded, device (%d, %d)!\n", MAJOR_NUMBER, MIN_MINOR_NUMBER);
 
@@ -189,10 +231,17 @@ int morse_init_module( void ) {
 
 /* Called when module is unloaded */
 void morse_cleanup_module( void ) {
+    /* kill the thread first*/
+    wake_up_interruptible(&morse_buf.readers);
+    kthread_stop(morse_thread);
+
 	led_off();
  
     /* Unmap GPIO memory, handles !gpio_base itself*/
     gpio_hw_exit(); 
+
+    /* */
+    cbuf_destroy(&morse_buf);
  
     cdev_del(&morse_cdev);
     unregister_chrdev_region(morse_devno, DEVICE_COUNT);
