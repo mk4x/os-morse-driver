@@ -6,6 +6,12 @@
 #  define MODULE
 #endif
 
+/* ioctl commands */
+#define MORSE_SET_UNIT_DURATION _IOW('m', 1, int)
+#define MORSE_GET_UNIT_DURATION _IOR('m', 2, int)
+#define MORSE_SET_BUFFER_SIZE   _IOW('m', 3, int)
+#define MORSE_GET_BUFFER_SIZE   _IOR('m', 4, int)
+
 #include <linux/io.h>
 #include <linux/kthread.h>
 #include <linux/delay.h>
@@ -27,6 +33,9 @@
 
 #include "morse_table.h"
 #include "gpio_handler.h"
+
+/* Morse timing from morse_table.c */
+extern int unit_duration;
 
 /* Prototypes - this would normally go in a .h file */
 int morse_init_module( void );
@@ -315,10 +324,79 @@ long morse_ioctl(
     unsigned int cmd,   /* command passed from the user */
     unsigned long arg ) /* argument of the command */
 {
-	/* ioctl code belongs here */
-	printk(KERN_INFO "Morse: ioctl called.\n");
-
-	return 0; //has to be changed
+    int val;
+    
+    printk(KERN_INFO "Morse: ioctl called with cmd %u\n", cmd);
+    
+    switch(cmd) {
+        case MORSE_SET_UNIT_DURATION:
+            /* Get value from userspace */
+            if (copy_from_user(&val, (int __user *)arg, sizeof(val)))
+                return -EFAULT;
+            
+            /* Validate range (10ms to 1000ms) */
+            if (val < 10 || val > 1000)
+                return -EINVAL;
+            
+            /* Set the unit duration */
+            unit_duration = val;
+            printk(KERN_INFO "Morse: Unit duration set to %d ms\n", unit_duration);
+            break;
+            
+        case MORSE_GET_UNIT_DURATION:
+            /* Return current unit duration to userspace */
+            if (copy_to_user((int __user *)arg, &unit_duration, sizeof(unit_duration)))
+                return -EFAULT;
+            break;
+            
+        case MORSE_SET_BUFFER_SIZE:
+            /* Get new buffer size from userspace */
+            if (copy_from_user(&val, (int __user *)arg, sizeof(val)))
+                return -EFAULT;
+            
+            /* Validate range (64 to 4096 bytes) */
+            if (val < 64 || val > 4096)
+                return -EINVAL;
+            
+            /* Lock the buffer during reallocation */
+            mutex_lock(&morse_buf.lock);
+            
+            /* Wait until buffer is empty before resizing */
+            if (cbuf_has_data(&morse_buf)) {
+                mutex_unlock(&morse_buf.lock);
+                printk(KERN_WARNING "Morse: Cannot resize buffer while data pending\n");
+                return -EBUSY;
+            }
+            
+            /* Reallocate buffer with new size */
+            kfree(morse_buf.data);
+            morse_buf.data = kmalloc(val, GFP_KERNEL);
+            if (!morse_buf.data) {
+                mutex_unlock(&morse_buf.lock);
+                return -ENOMEM;
+            }
+            morse_buf.size = val;
+            morse_buf.read_pos = 0;
+            morse_buf.write_pos = 0;
+            
+            mutex_unlock(&morse_buf.lock);
+            
+            printk(KERN_INFO "Morse: Buffer size changed to %d bytes\n", val);
+            break;
+            
+        case MORSE_GET_BUFFER_SIZE:
+            /* Return current buffer size */
+            val = morse_buf.size;
+            if (copy_to_user((int __user *)arg, &val, sizeof(val)))
+                return -EFAULT;
+            break;
+            
+        default:
+            /* Unknown command */
+            return -ENOTTY;
+    }
+    
+    return 0;
 }
 
 module_init( morse_init_module );
