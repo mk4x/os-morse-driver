@@ -114,6 +114,7 @@ const char *morse_lookup(char c)
 /* Export symbols for other modules */
 EXPORT_SYMBOL(transmit_morse);
 EXPORT_SYMBOL(morse_lookup);
+EXPORT_SYMBOL(unit_duration);
 
 MODULE_AUTHOR( "...Mar-Joh, Jen-Wil" );
 MODULE_LICENSE( "GPL" );
