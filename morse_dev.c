@@ -17,7 +17,7 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/slab.h>	
+#include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
 #include <linux/errno.h>
@@ -115,13 +115,13 @@ static inline int cbuf_has_space(struct circ_buf *b)
     return ((b->write_pos+1) % b->size) != b->read_pos;
 }
 
-static inline void cbuf_put(struct circ_buf *b, char c) 
+static inline void cbuf_put(struct circ_buf *b, char c)
 {
     b->data[b->write_pos] = c;
     b->write_pos = (b->write_pos + 1) % b->size;
 }
 
-static inline char cbuf_get(struct circ_buf *b) 
+static inline char cbuf_get(struct circ_buf *b)
 {
     char c = b->data[b->read_pos];
     b->read_pos = (b->read_pos + 1) % b->size;
@@ -135,18 +135,18 @@ static atomic_t            morse_open_count = ATOMIC_INIT(0);
 /* morse kthread livecycle, responsible for waking and reacting to when data is in circ_buf */
 static int morse_kthread(void *data)
 {
-    char c; 
+    char c;
 
     printk(KERN_INFO "Morse: kthread started.\n");
 
     /* built in command, if kthread is killed from outside*/
-    while (!kthread_should_stop()) 
+    while (!kthread_should_stop())
     {
         /* let the thread sleep until buffer has data or if called to kill itself */
         if (wait_event_interruptible(morse_buf.readers, cbuf_has_data(&morse_buf) || kthread_should_stop()))
         {
             break;
-        } 
+        }
 
         /* kill itself */
         if (kthread_should_stop())
@@ -170,7 +170,7 @@ static int morse_kthread(void *data)
         wake_up_interruptible(&morse_buf.writers);
 
         /* transmit the data to the LED */
-        /* note  this should not be done inside the lock since its a slow operation with msleep, 
+        /* note  this should not be done inside the lock since its a slow operation with msleep,
         morse_write cant happen if we are waiting */
         transmit_morse(&c, 1); // 1 char
     }
@@ -245,23 +245,23 @@ void morse_cleanup_module( void ) {
     kthread_stop(morse_thread);
 
 	led_off();
- 
+
     /* Unmap GPIO memory, handles !gpio_base itself*/
-    gpio_hw_exit(); 
+    gpio_hw_exit();
 
     /* */
     cbuf_destroy(&morse_buf);
- 
+
     cdev_del(&morse_cdev);
     unregister_chrdev_region(morse_devno, DEVICE_COUNT);
- 
+
 	printk(KERN_INFO "Morse: Module unloaded.\n");
 }
 
 
 /* Called when a process tries to open the device file */
 static int morse_open( struct inode *inode, struct file *filp ) {
-	
+
     /* if it is already claimed */
 	if (atomic_inc_return(&morse_open_count) > 1) {
         atomic_dec(&morse_open_count);
@@ -287,8 +287,26 @@ static ssize_t morse_write( struct file *filp,
     size_t count,   /* The max number of bytes to write */
     loff_t *f_pos )  /* The offset in the file          */
 {
-       size_t i;
+    size_t i;
     char c;
+    char *kbuf;
+
+    if (count == 0)
+        return 0;
+
+    kbuf = kmalloc(count + 1, GFP_KERNEL);
+    if (!kbuf)
+        return -ENOMEM;
+
+    if (copy_from_user(kbuf, buf, count)) {
+        kfree(kbuf);
+        return -EFAULT;
+    }
+
+    /* write to the kernel dmesg */
+    kbuf[count] = '\0'; // endline
+    printk(KERN_INFO "Morse: user wrote \"%s\"\n", kbuf);
+    kfree(kbuf);
 
     for (i = 0; i < count; i++) {
 
@@ -318,56 +336,56 @@ static ssize_t morse_write( struct file *filp,
     return count;
 }
 
-/* called by system call icotl */ 
-long morse_ioctl( 
-    struct file *filp, 
+/* called by system call icotl */
+long morse_ioctl(
+    struct file *filp,
     unsigned int cmd,   /* command passed from the user */
     unsigned long arg ) /* argument of the command */
 {
     int val;
-    
+
     printk(KERN_INFO "Morse: ioctl called with cmd %u\n", cmd);
-    
+
     switch(cmd) {
         case MORSE_SET_UNIT_DURATION:
             /* Get value from userspace */
             if (copy_from_user(&val, (int __user *)arg, sizeof(val)))
                 return -EFAULT;
-            
+
             /* Validate range (10ms to 1000ms) */
             if (val < 10 || val > 1000)
                 return -EINVAL;
-            
+
             /* Set the unit duration */
             unit_duration = val;
             printk(KERN_INFO "Morse: Unit duration set to %d ms\n", unit_duration);
             break;
-            
+
         case MORSE_GET_UNIT_DURATION:
             /* Return current unit duration to userspace */
             if (copy_to_user((int __user *)arg, &unit_duration, sizeof(unit_duration)))
                 return -EFAULT;
             break;
-            
+
         case MORSE_SET_BUFFER_SIZE:
             /* Get new buffer size from userspace */
             if (copy_from_user(&val, (int __user *)arg, sizeof(val)))
                 return -EFAULT;
-            
+
             /* Validate range (64 to 4096 bytes) */
             if (val < 64 || val > 4096)
                 return -EINVAL;
-            
+
             /* Lock the buffer during reallocation */
             mutex_lock(&morse_buf.lock);
-            
+
             /* Wait until buffer is empty before resizing */
             if (cbuf_has_data(&morse_buf)) {
                 mutex_unlock(&morse_buf.lock);
                 printk(KERN_WARNING "Morse: Cannot resize buffer while data pending\n");
                 return -EBUSY;
             }
-            
+
             /* Reallocate buffer with new size */
             kfree(morse_buf.data);
             morse_buf.data = kmalloc(val, GFP_KERNEL);
@@ -378,24 +396,24 @@ long morse_ioctl(
             morse_buf.size = val;
             morse_buf.read_pos = 0;
             morse_buf.write_pos = 0;
-            
+
             mutex_unlock(&morse_buf.lock);
-            
+
             printk(KERN_INFO "Morse: Buffer size changed to %d bytes\n", val);
             break;
-            
+
         case MORSE_GET_BUFFER_SIZE:
             /* Return current buffer size */
             val = morse_buf.size;
             if (copy_to_user((int __user *)arg, &val, sizeof(val)))
                 return -EFAULT;
             break;
-            
+
         default:
             /* Unknown command */
             return -ENOTTY;
     }
-    
+
     return 0;
 }
 

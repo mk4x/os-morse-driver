@@ -5,9 +5,12 @@ set -eu
 echo "==> Building module..."
 make clean && make
 
+echo "==> Building test helper for Pi..."
+aarch64-linux-gnu-gcc -Wall -Wextra -o test_ioctl test_ioctl.c
+
 echo "==> Copying kernel modules to Pi..."
 scp \
-	./morse_dev.ko ./morse_table.ko ./gpio_handler.ko \
+	./morse_dev.ko ./morse_table.ko ./gpio_handler.ko ./test_ioctl ./test_ioctl.c \
 	mark@mark.local:/home/mark/project2/
 
 echo "==> Reloading module on Pi..."

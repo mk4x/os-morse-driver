@@ -14,5 +14,5 @@ modules:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) LDDINC=$(KERNELDIR)/include ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules
 
 clean:
-	rm -rf .*.o .*.d *.o *~ core .depend *.mod .*.cmd *.ko *.mod.c .tmp_versions Module.symvers modules.order
+	rm -rf .*.o .*.d *.o *~ core .depend *.mod .*.cmd *.ko *.mod.c .tmp_versions Module.symvers modules.order test_ioctl
 
