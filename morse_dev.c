@@ -288,6 +288,7 @@ static ssize_t morse_write( struct file *filp,
     loff_t *f_pos )  /* The offset in the file          */
 {
     size_t i;
+    int ret;
     char c;
     char *kbuf;
 
@@ -320,11 +321,18 @@ static ssize_t morse_write( struct file *filp,
         if (!cbuf_has_space(&morse_buf)) {
             mutex_unlock(&morse_buf.lock);
 
+            /* fail immidietly if a non blocking writer tries to write */
             if (filp->f_flags & O_NONBLOCK)
                 return -EAGAIN;
 
-            /* Block until kthread frees a slot */
-            wait_event_interruptible(morse_buf.writers, cbuf_has_space(&morse_buf));
+            /* blocking writer waits until its open again */
+            printk(KERN_INFO "Morse: write is blocking, buffer is full\n");
+            ret = wait_event_interruptible(morse_buf.writers, cbuf_has_space(&morse_buf));
+            /* if signal (ret) is stopped by other signal then quit early*/
+            if (ret)
+                return ret;
+            /* space became available, free the lock */
+            printk(KERN_INFO "Morse: write unblocked, space is available\n");
             mutex_lock(&morse_buf.lock);
         }
 
